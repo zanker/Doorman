@@ -1,0 +1,8 @@
+== About
+Doorman is intended for phone based entry systems, such as those you see for apartments. It allows you to set it up to automatically unlock a door for a set period of time. You can also add as many passcodes for entry, which can optionally SMS a number with a message.
+
+Requires a Twilio account, and an entry system that has a keypad which passes through keys pressed. For opening the door, you will need to generate the specific DTMF tone to open the door, http://www.dialabc.com/sound/generate/ should do the trick for easily generating them.
+
+== Requirements
+Sinatra
+Twilio
