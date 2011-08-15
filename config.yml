@@ -1,0 +1,23 @@
+open_key: 9
+require_from: +13332226666
+timeout: 10
+
+twilio:
+  sid: .
+  token: .
+
+auto_open:
+  ends_at: 0
+  codes:
+    - 1234
+
+admin:
+  password: foobar
+  authorized:
+    - "+19998883333"
+
+codes:
+  1234:
+    mode: text
+    phone: +15559993333
+    message: A friend has arrived!
