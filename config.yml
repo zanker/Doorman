@@ -1,4 +1,5 @@
-open_key: 9
+open_file: tone.wav
+send_from: +15554448888
 require_from: +13332226666
 timeout: 10
 
