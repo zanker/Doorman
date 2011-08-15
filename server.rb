@@ -1,25 +1,27 @@
-require "twiliolib"
+require "twilio-ruby"
+require "yaml"
+require "sinatra"
 
 @config = YAML::load(File.read("./config.yml"))
 
-@util = Twilio::Utils.new(@config["twilio"]["sid"], @config["twilio"]["token"])
+@validator = Twilio::Util::RequestValidator.new(@config["twilio"]["token"])
+@client = Twilio::REST::Client.new(@config["twilio"]["sid"], @config["twilio"]["token"])
 
 # General door handling
+# Need to move this to a thread or unlink it from the initial Twilio response.
+# Maybe use <Redirect>
 def notify_arrival(data)
   return if data["mode"] == "none"
+  @client.account.sms.messages.create(:from => @config["send_from"], :to => data["phone"], :body => data["message"])
 end
 
 def verify_call
-  unless @util.validateRequest(request.env["HTTP_X_TWILIO_SIGNATURE"], request.url, params)
-    twiml = Twilio::Response.new
-    twiml.append(Twilio::Say.new("We're sorry, your call could not be verified."))
-    return twiml.respond
+  unless @validator.validate(request.url, params, request.env["HTTP_X_TWILIO_SIGNATURE"])
+    return (Twilio::TwiML::Response.new {|r| r.say("We're sorry, your call could not be verified.")}).text
   end
 
-  unless params["From"] == @config["require_from"]
-    twiml = Twilio::Response.new
-    twiml.append(Twilio::Say.new("We're sorry, your call could not be verified."))
-    return twiml.respond
+  unless params[:From] == @config["require_from"]
+    return (Twilio::TwiML::Response.new {|r| r.say("We're sorry, your call could not be verified.") }).text
   end
 
   nil
@@ -30,12 +32,14 @@ post "/" do
     return data
   end
 
-  twiml = Twilio::Response.new
-
   # Open the door since we're still automatically opening
   if @config["auto_open"]["ends_at"] and @config["auto_open"]["ends_at"] > Time.now.utc.to_i
-    # Enter digits
-    twiml.append(Twilio::Say.new("Welcome"))
+    twiml = Twilio::TwiML::Response.new do |r|
+      # DMTF tones can't be arbitrarily played back in Twilio.
+      # http://www.dialabc.com/sound/generate/ will generate the DMTF sound easily
+      r.play(@config["open_file"])
+      r.say("Welcome")
+    end
 
     @config["auto_open"]["codes"].each do |code|
       notify_arrival(@config["codes"][code])
@@ -44,12 +48,14 @@ post "/" do
   else
     code_length = @config["codes"].keys.first.to_s.length
 
-    gather = Twilio::Gather.new(:numDigits => code_length, :timeout => @config["admin"]["timeout"], :finishOnKey => "#", :action => "/code")
-    gather.append(Twilio::Say.new("Please enter the #{code_length} digit code."))
-    twiml.append(gather)
+    twiml = Twilio::TwiML::Response.new do |r|
+      r.gather(:numDigits => code_length, :timeout => @config["admin"]["timeout"], :finishOnKey => "#", :action => "/code") do |g|
+        g.say("Please enter the #{code_length} digit code.")
+      end
+    end
   end
 
-  return twiml.respond
+  return twiml.text
 end
 
 post "/code" do
@@ -57,18 +63,18 @@ post "/code" do
     return data
   end
 
-  twiml = Twilio::Response.new
-
-  if ( data = @config["codes"][params["Digits"].to_i] )
-    # Enter digits
-    twiml.append(Twilio::Say.new("Welcome"))
-
+  if ( data = @config["codes"][params[:Digits].to_i] )
     notify_arrival(data)
+
+    twiml = Twilio::TwiML::Response.new do |r|
+      r.play(@config["open_file"])
+      r.say("Welcome")
+    end
   else
-    twiml.append(Twilio::Say.new("Sorry, that code is incorrect."))
+    twiml = Twilio::TwiML::Response.new {|r| r.say("Sorry, that code is incorrect.")}
   end
 
-  twiml.respond
+  twiml.text
 end
 
 # Admin
@@ -93,10 +99,8 @@ def format_phone(number)
 end
 
 def verify_admin
-  unless @util.validateRequest(request.env["HTTP_X_TWILIO_SIGNATURE"], request.url, params)
-    twiml = Twilio::Response.new
-    twiml.append(Twilio::Say.new("Sorry, your request is invalid."))
-    return twiml.respond
+  unless @validator.validate(request.url, params, request.env["HTTP_X_TWILIO_SIGNATURE"])
+    return (Twilio::TwiML::Response.new {|r| r.sms("Sorry, your request is invalid.")}).text
   end
 
   nil
@@ -107,38 +111,37 @@ post "/sms" do
     return data
   end
 
-  twiml = Twilio::Response.new
-  cmd, args = params["Message"].split(" ", 2)
+  twiml = nil
+  cmd, args = params[:Body].split(" ", 2)
 
   # Basic auth/deauth
   if cmd == "authorize"
     if @config["admin"]["password"] == data
-      @config["admin"]["authorized"].push(params["Called"])
+      @config["admin"]["authorized"].push(params[:From])
       flush_config
 
-      twiml.append(Twilio::Say.new("Number authorized."))
+      twiml = Twilio::TwiML::Response.new {|r| r.sms("Authorized!")}
     else
-      twiml.append(Twilio::Say.new("Access denied."))
+      twiml = Twilio::TwiML::Response.new {|r| r.sms("Access Denied.")}
     end
 
     return twiml.respond
-  elsif cmd == "deauthorize"
+  elsif cmd == "unauthorize"
     if @config["admin"]["password"] == data
-      @config["admin"]["authorized"].delete(params["Called"])
+      @config["admin"]["authorized"].delete(params[:From])
       flush_config
 
-      twiml.append(Twilio::Say.new("Number de-authorized."))
+      twiml = Twilio::TwiML::Response.new {|r| r.sms("Unauthorized this phone.")}
     else
-      twiml.append(Twilio::Say.new("Access denied."))
+      twiml = Twilio::TwiML::Response.new {|r| r.sms("Access Denied.")}
     end
 
-    return twiml.respond
+    return twiml.text
   end
 
   # Anything after we need to actually be authorized to this
-  unless @config["admin"]["authorized"].include?(params["Called"])
-    twiml.append(Twilio::Say.new("Access denied."))
-    return twiml.respond
+  unless @config["admin"]["authorized"].include?(params[:From])
+    return (Twilio::TwiML::Response.new {|r| r.sms("Access Denied.")}).text
   end
 
   # Automatically unlock anytime someone asks it to for a set time limit
@@ -160,19 +163,19 @@ post "/sms" do
 
     # Don't notify anyone on auto open
     if codes.nil?
-      twiml.append(Twilio::Say.new("Door will auto unlock for the next #{amount} #{unit}."))
+      twiml = Twilio::TwiML::Response.new {|r| r.sms("Door will auto unlock for the next #{amount} #{unit}.")}
     # Notify using the given codes
     else
       @config["auto_open"]["codes"] = codes.split(" ").map {|code| code.to_i}
 
-      phones = (@config["auto_open"]["codes"].map {|data| data["phone"]}).uniq
-      twiml.append(Twilio::Say.new("Door will auto unlock for #{amount} #{unit} and notify #{phones.join(", ")}."))
+      phones = (@config["auto_open"]["codes"].map {|data| format_phone(data["phone"])}).uniq
+      twiml = Twilio::TwiML::Response.new {|r| r.sms("Door will auto unlock for the next #{amount} #{unit}, and notify #{phones.join(", ")}.")}
     end
 
   # Stop auto unlocking early
   elsif cmd == "lock"
     @config["auto_open"]["ends_at"] = nil
-    twiml.append(Twilio::Say.new("Door will no longer auto open."))
+    twiml = Twilio::TwiML::Response.new {|r| r.sms("Door will no longer auto open.")}
 
   # Add a new code
   elsif cmd == "add-code"
@@ -180,23 +183,23 @@ post "/sms" do
 
     code, mode, phone, message = args.split(" ", 4)
 
-    phone = params["Called"] if phone == "me"
+    phone = params[:From] if phone == "me"
     code, phone = code.to_i, parse_phone(phone)
 
     if @config["codes"][code]
-      twiml.append(Twilio::Say.new("The code #{code} is already in use."))
+      twiml = Twilio::TwiML::Response.new {|r| r.sms("The code #{code} is already in use.")}
     elsif code.to_s.length != crt_length
-      twiml.append(Twilio::Say.new("All codes must be exactly #{crt_length} digits long."))
-    elsif mode != "text" and mode != "call" and mode != "none"
-      twiml.append(Twilio::Say.new("Invalid mode, must be either \"text\", \"call\" or \"none\"."))
+      twiml = Twilio::TwiML::Response.new {|r| r.sms("All codes must be exactly #{crt_length} digits long.")}
+    elsif mode != "text" and mode != "none"
+      twiml = Twilio::TwiML::Response.new {|r| r.sms("Invalid mode, must be either \"text\" or \"none\".")}
     elsif phone.nil? or phone == ""
-      twiml.append(Twilio::Say.new("Invalid phone entered, must either be a valid number or \"me\"."))
+      twiml = Twilio::TwiML::Response.new {|r| r.sms("Invalid phone, must be either 10 or 11 digits.")}
     elsif mode != "none" and ( message.nil? or message == "" )
-      twiml.append(Twilio::Say.new("No message given notify when the unlock is used."))
+      twiml = Twilio::TwiML::Response.new {|r| r.sms("No message given when the unlock code is used.")}
     # Added!
     else
       @config["codes"][code] = {"mode" => mode, "phone" => phone, "message" => message}
-      twiml.append(Twilio::Say.new("Added new code #{code}, will #{mode == "none" && "not notify" || "#{mode} #{format_number(phone)}"} when someone arrives."))
+      twiml = Twilio::TwiML::Response.new {|r| r.sms("Added new code #{code}, will #{mode == "none" && "not notify" || "#{mode} #{format_number(phone)}"} when someone arrives.")}
     end
 
   # Remove an added code
@@ -204,9 +207,19 @@ post "/sms" do
     code = args.to_i
 
     @config["codes"].delete(code)
-    twiml.append(Twilio::Say.new("Removed code #{code}."))
+    twiml = Twilio::TwiML::Response.new {|r| r.sms("Removed code #{code}.")}
+
+  # Help!
+  elsif cmd == "help"
+    twiml = Twilio::TwiML::Response.new do |r|
+        r.sms("authorize <password>: Authorizes a new phone to use admin. unauthorize: Unauthorizes the phone.")
+        r.sms("unlock <amount> <minutes/hours/days>: How long to auto unlock the door. lock: Ends an auto unlock early.")
+        r.sms("add-code <code> <text/none> <phone> <message>: Adds a new passcode, as well as an optional notifier when the code is used. rm-code: Removes an added code.")
+    end
+
+    return twiml.text
   end
 
   flush_config
-  twiml.respond
+  twiml.text
 end
