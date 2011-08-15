@@ -36,8 +36,8 @@ post "/" do
   # Open the door since we're still automatically opening
   if @config["auto_open"]["ends_at"] and @config["auto_open"]["ends_at"] > Time.now.utc.to_i
     twiml = Twilio::TwiML::Response.new do |r|
-      # DMTF tones can't be arbitrarily played back in Twilio.
-      # http://www.dialabc.com/sound/generate/ will generate the DMTF sound easily
+      # DTMF tones can't be arbitrarily played back in Twilio.
+      # http://www.dialabc.com/sound/generate/ will generate the DTMF sound easily
       r.play(@config["open_file"])
       r.say("Welcome")
     end
