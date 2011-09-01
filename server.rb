@@ -81,7 +81,7 @@ end
 # Admin
 def flush_config
   file = File.open("./config.yml", "w+")
-  file.write(YAML::generate($config))
+  file.write(YAML.dump($config))
   file.close
 end
 
@@ -114,6 +114,7 @@ post "/sms" do
 
   twiml = nil
   cmd, args = params[:Body].split(" ", 2)
+  cmd = cmd.downcase
 
   # Basic auth/deauth
   if cmd == "authorize"
