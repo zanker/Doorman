@@ -115,6 +115,7 @@ post "/sms" do
   twiml = nil
   cmd, args = params[:Body].split(" ", 2)
   cmd = cmd.downcase
+  args.trim!
 
   # Basic auth/deauth
   if cmd == "authorize"
