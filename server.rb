@@ -50,7 +50,7 @@ post "/" do
     code_length = $config["codes"].keys.first.to_s.length
 
     twiml = Twilio::TwiML::Response.new do |r|
-      r.gather(:numDigits => code_length, :timeout => $config["admin"]["timeout"], :finishOnKey => "#", :action => "/code") do |g|
+      r.gather(:numDigits => code_length, :timeout => $config["timeout"], :finishOnKey => "#", :action => "/code") do |g|
         g.say("Please enter the #{code_length} digit code.")
       end
     end
