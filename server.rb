@@ -118,7 +118,7 @@ post "/sms" do
 
   # Basic auth/deauth
   if cmd == "authorize"
-    if $config["admin"]["password"] == data
+    if $config["admin"]["password"] == args
       $config["admin"]["authorized"].push(params[:From])
       flush_config
 
@@ -129,7 +129,7 @@ post "/sms" do
 
     return twiml.text
   elsif cmd == "unauthorize"
-    if $config["admin"]["password"] == data
+    if $config["admin"]["password"] == args
       $config["admin"]["authorized"].delete(params[:From])
       flush_config
 
