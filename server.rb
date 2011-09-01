@@ -127,7 +127,7 @@ post "/sms" do
       twiml = Twilio::TwiML::Response.new {|r| r.SMS("Access Denied.")}
     end
 
-    return twiml.respond
+    return twiml.text
   elsif cmd == "unauthorize"
     if $config["admin"]["password"] == data
       $config["admin"]["authorized"].delete(params[:From])
