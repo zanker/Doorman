@@ -3,25 +3,25 @@ require "twilio-ruby"
 require "yaml"
 require "sinatra"
 
-@config = YAML::load(File.read("./config.yml"))
+$config = YAML::load(File.read("./config.yml"))
 
-@validator = Twilio::Util::RequestValidator.new(@config["twilio"]["token"])
-@client = Twilio::REST::Client.new(@config["twilio"]["sid"], @config["twilio"]["token"])
+$validator = Twilio::Util::RequestValidator.new($config["twilio"]["token"])
+$client = Twilio::REST::Client.new($config["twilio"]["sid"], $config["twilio"]["token"])
 
 # General door handling
 # Need to move this to a thread or unlink it from the initial Twilio response.
 # Maybe use <Redirect>
 def notify_arrival(data)
   return if data["mode"] == "none"
-  @client.account.sms.messages.create(:from => @config["send_from"], :to => data["phone"], :body => data["message"])
+  $client.account.sms.messages.create(:from => $config["send_from"], :to => data["phone"], :body => data["message"])
 end
 
 def verify_call
-  unless @validator.validate(request.url, params, request.env["HTTP_X_TWILIO_SIGNATURE"])
+  unless $validator.validate(request.url, params, request.env["HTTP_X_TWILIO_SIGNATURE"])
     return (Twilio::TwiML::Response.new {|r| r.say("We're sorry, your call could not be verified.")}).text
   end
 
-  unless params[:From] == @config["require_from"]
+  unless params[:From] == $config["require_from"]
     return (Twilio::TwiML::Response.new {|r| r.say("We're sorry, your call could not be verified.") }).text
   end
 
@@ -34,23 +34,23 @@ post "/" do
   end
 
   # Open the door since we're still automatically opening
-  if @config["auto_open"]["ends_at"] and @config["auto_open"]["ends_at"] > Time.now.utc.to_i
+  if $config["auto_open"]["ends_at"] and $config["auto_open"]["ends_at"] > Time.now.utc.to_i
     twiml = Twilio::TwiML::Response.new do |r|
       # DTMF tones can't be arbitrarily played back in Twilio.
       # http://www.dialabc.com/sound/generate/ will generate the DTMF sound easily
-      r.play(@config["open_file"])
+      r.play($config["open_file"])
       r.say("Welcome")
     end
 
-    @config["auto_open"]["codes"].each do |code|
-      notify_arrival(@config["codes"][code])
+    $config["auto_open"]["codes"].each do |code|
+      notify_arrival($config["codes"][code])
     end
   # Require a passcode
   else
-    code_length = @config["codes"].keys.first.to_s.length
+    code_length = $config["codes"].keys.first.to_s.length
 
     twiml = Twilio::TwiML::Response.new do |r|
-      r.gather(:numDigits => code_length, :timeout => @config["admin"]["timeout"], :finishOnKey => "#", :action => "/code") do |g|
+      r.gather(:numDigits => code_length, :timeout => $config["admin"]["timeout"], :finishOnKey => "#", :action => "/code") do |g|
         g.say("Please enter the #{code_length} digit code.")
       end
     end
@@ -64,11 +64,11 @@ post "/code" do
     return data
   end
 
-  if ( data = @config["codes"][params[:Digits].to_i] )
+  if ( data = $config["codes"][params[:Digits].to_i] )
     notify_arrival(data)
 
     twiml = Twilio::TwiML::Response.new do |r|
-      r.play(@config["open_file"])
+      r.play($config["open_file"])
       r.say("Welcome")
     end
   else
@@ -81,7 +81,7 @@ end
 # Admin
 def flush_config
   file = File.open("./config.yml", "w+")
-  file.write(YAML::generate(@config))
+  file.write(YAML::generate($config))
   file.close
 end
 
@@ -100,7 +100,7 @@ def format_phone(number)
 end
 
 def verify_admin
-  unless @validator.validate(request.url, params, request.env["HTTP_X_TWILIO_SIGNATURE"])
+  unless $validator.validate(request.url, params, request.env["HTTP_X_TWILIO_SIGNATURE"])
     return (Twilio::TwiML::Response.new {|r| r.sms("Sorry, your request is invalid.")}).text
   end
 
@@ -117,8 +117,8 @@ post "/sms" do
 
   # Basic auth/deauth
   if cmd == "authorize"
-    if @config["admin"]["password"] == data
-      @config["admin"]["authorized"].push(params[:From])
+    if $config["admin"]["password"] == data
+      $config["admin"]["authorized"].push(params[:From])
       flush_config
 
       twiml = Twilio::TwiML::Response.new {|r| r.sms("Authorized!")}
@@ -128,8 +128,8 @@ post "/sms" do
 
     return twiml.respond
   elsif cmd == "unauthorize"
-    if @config["admin"]["password"] == data
-      @config["admin"]["authorized"].delete(params[:From])
+    if $config["admin"]["password"] == data
+      $config["admin"]["authorized"].delete(params[:From])
       flush_config
 
       twiml = Twilio::TwiML::Response.new {|r| r.sms("Unauthorized this phone.")}
@@ -141,7 +141,7 @@ post "/sms" do
   end
 
   # Anything after we need to actually be authorized to this
-  unless @config["admin"]["authorized"].include?(params[:From])
+  unless $config["admin"]["authorized"].include?(params[:From])
     return (Twilio::TwiML::Response.new {|r| r.sms("Access Denied.")}).text
   end
 
@@ -150,16 +150,16 @@ post "/sms" do
     amount, unit, codes = args.split(" ", 3)
     amount = amount.to_i
 
-    @config["auto_open"]["ends_at"] = Time.now.utc
-    @config["auto_open"]["codes"] = []
+    $config["auto_open"]["ends_at"] = Time.now.utc
+    $config["auto_open"]["codes"] = []
     if unit =~ /^seconds{0,}$/i
-      @config["auto_open"]["ends_at"] += amount
+      $config["auto_open"]["ends_at"] += amount
     elsif unit =~ /^minutes{0,}$/i
-      @config["auto_open"]["ends_at"] += amount * 60
+      $config["auto_open"]["ends_at"] += amount * 60
     elsif unit =~ /^hours{0,}$/i
-      @config["auto_open"]["ends_at"] += amount * 3600
+      $config["auto_open"]["ends_at"] += amount * 3600
     elsif unit =~ /^days{0,}$/i
-      @config["auto_open"]["ends_at"] += amount * 86400
+      $config["auto_open"]["ends_at"] += amount * 86400
     end
 
     # Don't notify anyone on auto open
@@ -167,27 +167,27 @@ post "/sms" do
       twiml = Twilio::TwiML::Response.new {|r| r.sms("Door will auto unlock for the next #{amount} #{unit}.")}
     # Notify using the given codes
     else
-      @config["auto_open"]["codes"] = codes.split(" ").map {|code| code.to_i}
+      $config["auto_open"]["codes"] = codes.split(" ").map {|code| code.to_i}
 
-      phones = (@config["auto_open"]["codes"].map {|data| format_phone(data["phone"])}).uniq
+      phones = ($config["auto_open"]["codes"].map {|data| format_phone(data["phone"])}).uniq
       twiml = Twilio::TwiML::Response.new {|r| r.sms("Door will auto unlock for the next #{amount} #{unit}, and notify #{phones.join(", ")}.")}
     end
 
   # Stop auto unlocking early
   elsif cmd == "lock"
-    @config["auto_open"]["ends_at"] = nil
+    $config["auto_open"]["ends_at"] = nil
     twiml = Twilio::TwiML::Response.new {|r| r.sms("Door will no longer auto open.")}
 
   # Add a new code
   elsif cmd == "add-code"
-    crt_length = @config["codes"].keys.first.to_s.length
+    crt_length = $config["codes"].keys.first.to_s.length
 
     code, mode, phone, message = args.split(" ", 4)
 
     phone = params[:From] if phone == "me"
     code, phone = code.to_i, parse_phone(phone)
 
-    if @config["codes"][code]
+    if $config["codes"][code]
       twiml = Twilio::TwiML::Response.new {|r| r.sms("The code #{code} is already in use.")}
     elsif code.to_s.length != crt_length
       twiml = Twilio::TwiML::Response.new {|r| r.sms("All codes must be exactly #{crt_length} digits long.")}
@@ -199,7 +199,7 @@ post "/sms" do
       twiml = Twilio::TwiML::Response.new {|r| r.sms("No message given when the unlock code is used.")}
     # Added!
     else
-      @config["codes"][code] = {"mode" => mode, "phone" => phone, "message" => message}
+      $config["codes"][code] = {"mode" => mode, "phone" => phone, "message" => message}
       twiml = Twilio::TwiML::Response.new {|r| r.sms("Added new code #{code}, will #{mode == "none" && "not notify" || "#{mode} #{format_number(phone)}"} when someone arrives.")}
     end
 
@@ -207,7 +207,7 @@ post "/sms" do
   elsif cmd == "rm-code"
     code = args.to_i
 
-    @config["codes"].delete(code)
+    $config["codes"].delete(code)
     twiml = Twilio::TwiML::Response.new {|r| r.sms("Removed code #{code}.")}
 
   # Help!
