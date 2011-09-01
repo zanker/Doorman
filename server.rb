@@ -17,9 +17,9 @@ def notify_arrival(data)
 end
 
 def verify_call
-  unless $validator.validate(request.url, params, request.env["HTTP_X_TWILIO_SIGNATURE"])
-    return (Twilio::TwiML::Response.new {|r| r.say("We're sorry, your call could not be verified.")}).text
-  end
+  #unless $validator.validate(request.url, params, request.env["HTTP_X_TWILIO_SIGNATURE"])
+  #  return (Twilio::TwiML::Response.new {|r| r.say("We're sorry, your call could not be verified.")}).text
+  #end
 
   unless params[:From] == $config["require_from"]
     return (Twilio::TwiML::Response.new {|r| r.say("We're sorry, your call could not be verified.") }).text
@@ -100,9 +100,9 @@ def format_phone(number)
 end
 
 def verify_admin
-  unless $validator.validate(request.url, params, request.env["HTTP_X_TWILIO_SIGNATURE"])
-    return (Twilio::TwiML::Response.new {|r| r.sms("Sorry, your request is invalid.")}).text
-  end
+  #unless $validator.validate(request.url, params, request.env["HTTP_X_TWILIO_SIGNATURE"])
+  #  return (Twilio::TwiML::Response.new {|r| r.sms("Sorry, your request is invalid.")}).text
+  #end
 
   nil
 end
